@@ -801,6 +801,25 @@
                 flex-direction: column;
             }
         }
+        
+        /* 打印样式 */
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            .print-section, .print-section * {
+                visibility: visible;
+            }
+            .print-section {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+                padding: 20px;
+                background: white;
+                color: black;
+            }
+        }
     </style>
 </head>
 <body>
@@ -961,6 +980,9 @@
                     <button class="form-btn save-btn" id="saveCategoryBtn">
                         <i class="fas fa-save"></i> 保存分类
                     </button>
+                    <button class="form-btn cancel-btn" id="cancelCategoryBtn" style="display:none;">
+                        <i class="fas fa-times"></i> 取消编辑
+                    </button>
                 </div>
                 
                 <h3 style="margin-top: 30px;">现有分类</h3>
@@ -990,6 +1012,9 @@
                     <button class="form-btn save-btn" id="saveItemBtn">
                         <i class="fas fa-save"></i> 保存菜品
                     </button>
+                    <button class="form-btn cancel-btn" id="cancelItemBtn" style="display:none;">
+                        <i class="fas fa-times"></i> 取消编辑
+                    </button>
                 </div>
                 
                 <h3 style="margin-top: 30px;">现有菜品</h3>
@@ -997,6 +1022,45 @@
                     <!-- Items will be populated by JavaScript -->
                 </div>
             </div>
+        </div>
+    </div>
+    
+    <!-- Print Section (hidden by default) -->
+    <div class="print-section" id="printSection" style="display:none;">
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h1>豫见·日式烧鸟匠心烧烤</h1>
+            <p>原味鲜嫩！零添加更安心</p>
+            <p>让心事随泡沫翻腾</p>
+        </div>
+        
+        <div style="border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px;">
+            <div style="display: flex; justify-content: space-between;">
+                <div>订单号: <span id="printOrderId"></span></div>
+                <div>桌号: <span id="printDeskNumber"></span></div>
+                <div>下单时间: <span id="printOrderTime"></span></div>
+            </div>
+        </div>
+        
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
+            <thead>
+                <tr style="border-bottom: 2px solid #333;">
+                    <th style="text-align: left; padding: 8px;">菜品</th>
+                    <th style="text-align: right; padding: 8px;">单价</th>
+                    <th style="text-align: center; padding: 8px;">数量</th>
+                    <th style="text-align: right; padding: 8px;">小计</th>
+                </tr>
+            </thead>
+            <tbody id="printOrderItems">
+                <!-- Order items will be populated by JavaScript -->
+            </tbody>
+        </table>
+        
+        <div style="text-align: right; font-size: 1.2rem; font-weight: bold; margin-top: 20px; padding-top: 10px; border-top: 2px solid #333;">
+            总计: <span id="printTotalAmount"></span>
+        </div>
+        
+        <div style="text-align: center; margin-top: 30px; font-style: italic;">
+            感谢您的惠顾，期待再次光临！
         </div>
     </div>
     
@@ -1072,6 +1136,10 @@
         let menuItems = [...initialMenuItems];
         let categories = [...initialCategories];
         
+        // 菜单管理状态
+        let editingCategory = null;
+        let editingItem = null;
+        
         // DOM元素
         const menuGrid = document.getElementById('menuGrid');
         const orderList = document.getElementById('orderList');
@@ -1100,6 +1168,8 @@
         const categoryList = document.getElementById('categoryList');
         const itemList = document.getElementById('itemList');
         const itemCategory = document.getElementById('itemCategory');
+        const cancelCategoryBtn = document.getElementById('cancelCategoryBtn');
+        const cancelItemBtn = document.getElementById('cancelItemBtn');
         
         // 初始化页面
         function initPage() {
@@ -1495,8 +1565,34 @@
                 return;
             }
             
-            // 在实际应用中，这里会调用打印功能
-            showNotification('订单已发送到打印机');
+            const now = new Date();
+            const total = currentOrder.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            
+            // 填充打印内容
+            document.getElementById('printOrderId').textContent = 'PRINT-' + now.getTime().toString().slice(-6);
+            document.getElementById('printDeskNumber').textContent = `${currentDesk}号桌`;
+            document.getElementById('printOrderTime').textContent = now.toLocaleTimeString('zh-CN');
+            document.getElementById('printTotalAmount').textContent = `¥${total.toFixed(2)}`;
+            
+            const printItems = document.getElementById('printOrderItems');
+            printItems.innerHTML = '';
+            
+            currentOrder.forEach(item => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td style="text-align: left; padding: 8px;">${item.name}</td>
+                    <td style="text-align: right; padding: 8px;">¥${item.price.toFixed(2)}</td>
+                    <td style="text-align: center; padding: 8px;">${item.quantity}</td>
+                    <td style="text-align: right; padding: 8px;">¥${(item.price * item.quantity).toFixed(2)}</td>
+                `;
+                printItems.appendChild(row);
+            });
+            
+            // 显示打印区域并打印
+            const printSection = document.getElementById('printSection');
+            printSection.style.display = 'block';
+            window.print();
+            printSection.style.display = 'none';
         }
         
         // 清除订单管理中的所有订单
@@ -1522,25 +1618,75 @@
                 return;
             }
             
-            // 创建新分类
-            const newCategory = {
-                id: name.toLowerCase().replace(/\s+/g, '-'),
-                name: name,
-                icon: icon
-            };
-            
-            // 添加到分类列表
-            categories.push(newCategory);
+            if (editingCategory) {
+                // 更新现有分类
+                const category = categories.find(c => c.id === editingCategory);
+                if (category) {
+                    category.name = name;
+                    category.icon = icon;
+                    showNotification('分类更新成功！');
+                }
+            } else {
+                // 创建新分类
+                const newCategory = {
+                    id: name.toLowerCase().replace(/\s+/g, '-'),
+                    name: name,
+                    icon: icon
+                };
+                
+                // 添加到分类列表
+                categories.push(newCategory);
+                showNotification('分类添加成功！');
+            }
             
             // 更新UI
             renderCategories();
             renderCategoryList();
             
-            // 清空表单
+            // 重置表单和状态
+            resetCategoryForm();
+        }
+        
+        // 编辑分类
+        function editCategory(categoryId) {
+            const category = categories.find(c => c.id === categoryId);
+            if (!category) return;
+            
+            document.getElementById('categoryName').value = category.name;
+            document.getElementById('categoryIcon').value = category.icon;
+            
+            editingCategory = categoryId;
+            
+            // 更新UI
+            saveCategoryBtn.innerHTML = '<i class="fas fa-save"></i> 更新分类';
+            cancelCategoryBtn.style.display = 'inline-block';
+        }
+        
+        // 删除分类
+        function deleteCategory(categoryId) {
+            // 检查分类下是否有菜品
+            const itemsInCategory = menuItems.filter(item => item.category === categoryId);
+            
+            if (itemsInCategory.length > 0) {
+                showNotification(`该分类下有${itemsInCategory.length}个菜品，无法删除`);
+                return;
+            }
+            
+            if (confirm(`确定要删除此分类吗？`)) {
+                categories = categories.filter(c => c.id !== categoryId);
+                renderCategories();
+                renderCategoryList();
+                showNotification('分类已删除');
+            }
+        }
+        
+        // 重置分类表单
+        function resetCategoryForm() {
             document.getElementById('categoryName').value = '';
             document.getElementById('categoryIcon').value = '';
-            
-            showNotification('分类添加成功！');
+            editingCategory = null;
+            saveCategoryBtn.innerHTML = '<i class="fas fa-save"></i> 保存分类';
+            cancelCategoryBtn.style.display = 'none';
         }
         
         // 添加新菜品
@@ -1554,26 +1700,70 @@
                 return;
             }
             
-            // 创建新菜品
-            const newItem = {
-                id: menuItems.length > 0 ? Math.max(...menuItems.map(i => i.id)) + 1 : 1,
-                name: name,
-                price: price,
-                category: category
-            };
-            
-            // 添加到菜品列表
-            menuItems.push(newItem);
+            if (editingItem) {
+                // 更新现有菜品
+                const item = menuItems.find(i => i.id === editingItem);
+                if (item) {
+                    item.name = name;
+                    item.price = price;
+                    item.category = category;
+                    showNotification('菜品更新成功！');
+                }
+            } else {
+                // 创建新菜品
+                const newItem = {
+                    id: menuItems.length > 0 ? Math.max(...menuItems.map(i => i.id)) + 1 : 1,
+                    name: name,
+                    price: price,
+                    category: category
+                };
+                
+                // 添加到菜品列表
+                menuItems.push(newItem);
+                showNotification('菜品添加成功！');
+            }
             
             // 更新UI
             renderMenu('all');
             renderItemList();
             
-            // 清空表单
+            // 重置表单和状态
+            resetItemForm();
+        }
+        
+        // 编辑菜品
+        function editItem(itemId) {
+            const item = menuItems.find(i => i.id === itemId);
+            if (!item) return;
+            
+            document.getElementById('itemName').value = item.name;
+            document.getElementById('itemPrice').value = item.price;
+            document.getElementById('itemCategory').value = item.category;
+            
+            editingItem = itemId;
+            
+            // 更新UI
+            saveItemBtn.innerHTML = '<i class="fas fa-save"></i> 更新菜品';
+            cancelItemBtn.style.display = 'inline-block';
+        }
+        
+        // 删除菜品
+        function deleteItem(itemId) {
+            if (confirm(`确定要删除此菜品吗？`)) {
+                menuItems = menuItems.filter(i => i.id !== itemId);
+                renderMenu('all');
+                renderItemList();
+                showNotification('菜品已删除');
+            }
+        }
+        
+        // 重置菜品表单
+        function resetItemForm() {
             document.getElementById('itemName').value = '';
             document.getElementById('itemPrice').value = '';
-            
-            showNotification('菜品添加成功！');
+            editingItem = null;
+            saveItemBtn.innerHTML = '<i class="fas fa-save"></i> 保存菜品';
+            cancelItemBtn.style.display = 'none';
         }
         
         // 导出当日订单
@@ -1750,6 +1940,36 @@
             // 保存菜品按钮
             saveItemBtn.addEventListener('click', addNewItem);
             
+            // 取消编辑按钮
+            cancelCategoryBtn.addEventListener('click', resetCategoryForm);
+            cancelItemBtn.addEventListener('click', resetItemForm);
+            
+            // 分类列表事件委托
+            categoryList.addEventListener('click', (e) => {
+                if (e.target.closest('.edit-icon')) {
+                    const icon = e.target.closest('.edit-icon');
+                    const categoryId = icon.dataset.id;
+                    editCategory(categoryId);
+                } else if (e.target.closest('.delete-icon')) {
+                    const icon = e.target.closest('.delete-icon');
+                    const categoryId = icon.dataset.id;
+                    deleteCategory(categoryId);
+                }
+            });
+            
+            // 菜品列表事件委托
+            itemList.addEventListener('click', (e) => {
+                if (e.target.closest('.edit-icon')) {
+                    const icon = e.target.closest('.edit-icon');
+                    const itemId = parseInt(icon.dataset.id);
+                    editItem(itemId);
+                } else if (e.target.closest('.delete-icon')) {
+                    const icon = e.target.closest('.delete-icon');
+                    const itemId = parseInt(icon.dataset.id);
+                    deleteItem(itemId);
+                }
+            });
+            
             // 模态框关闭
             modalClose.addEventListener('click', () => {
                 orderDetailModal.classList.remove('active');
@@ -1757,6 +1977,8 @@
             
             menuModalClose.addEventListener('click', () => {
                 menuManagementModal.classList.remove('active');
+                resetCategoryForm();
+                resetItemForm();
             });
             
             // 点击模态框外部关闭
@@ -1769,6 +1991,8 @@
             menuManagementModal.addEventListener('click', (e) => {
                 if (e.target === menuManagementModal) {
                     menuManagementModal.classList.remove('active');
+                    resetCategoryForm();
+                    resetItemForm();
                 }
             });
         }
