@@ -820,9 +820,54 @@
                 color: black;
             }
         }
+        
+        .progress-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 3000;
+            display: none;
+        }
+        
+        .progress-bar {
+            width: 300px;
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.3s;
+        }
+        
+        .progress-text {
+            color: white;
+            font-size: 1.2rem;
+            margin-top: 15px;
+        }
     </style>
 </head>
 <body>
+    <div class="progress-container" id="progressContainer">
+        <i class="fas fa-spinner fa-spin fa-3x" style="color: var(--info);"></i>
+        <div class="progress-text" id="progressText">正在准备导出数据...</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+    </div>
+    
     <header>
         <div class="logo">
             <i class="fas fa-utensils"></i>
@@ -1170,6 +1215,9 @@
         const itemCategory = document.getElementById('itemCategory');
         const cancelCategoryBtn = document.getElementById('cancelCategoryBtn');
         const cancelItemBtn = document.getElementById('cancelItemBtn');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressFill = document.getElementById('progressFill');
+        const progressText = document.getElementById('progressText');
         
         // 初始化页面
         function initPage() {
@@ -1798,34 +1846,232 @@
             const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
             XLSX.utils.book_append_sheet(wb, summaryWs, "当日订单汇总");
             
-            // 为每个订单创建工作表
-            orders.forEach(order => {
-                const orderData = [
-                    ['桌号', `${order.desk}号桌`],
-                    ['订单号', order.id],
-                    ['下单时间', order.time],
-                    [],
-                    ['菜品名称', '单价', '数量', '小计']
-                ];
-                
-                order.items.forEach(item => {
-                    orderData.push([
-                        item.name,
-                        item.price,
-                        item.quantity,
-                        item.price * item.quantity
-                    ]);
-                });
-                
-                orderData.push(['总计', '', '', order.total]);
-                
-                const ws = XLSX.utils.aoa_to_sheet(orderData);
-                XLSX.utils.book_append_sheet(wb, ws, `订单${order.id.slice(-4)}`);
-            });
-            
             // 导出文件
             XLSX.writeFile(wb, `烧鸟店订单_${today}.xlsx`);
             showNotification('当日订单已导出为Excel文件');
+        }
+        
+        // 获取周订单数据
+        function getWeeklyOrders() {
+            const today = new Date();
+            const startDate = new Date(today);
+            startDate.setDate(today.getDate() - 6); // 过去7天
+            
+            const orders = [];
+            const dates = [];
+            
+            // 获取日期范围
+            for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+                const dateStr = d.toISOString().split('T')[0];
+                dates.push(dateStr);
+                if (dailyOrders[dateStr]) {
+                    orders.push(...dailyOrders[dateStr]);
+                }
+            }
+            
+            return { orders, dates };
+        }
+        
+        // 获取月订单数据
+        function getMonthlyOrders() {
+            const today = new Date();
+            const startDate = new Date(today);
+            startDate.setDate(today.getDate() - 29); // 过去30天
+            
+            const orders = [];
+            const dates = [];
+            
+            // 获取日期范围
+            for (let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)) {
+                const dateStr = d.toISOString().split('T')[0];
+                dates.push(dateStr);
+                if (dailyOrders[dateStr]) {
+                    orders.push(...dailyOrders[dateStr]);
+                }
+            }
+            
+            return { orders, dates };
+        }
+        
+        // 导出周订单
+        function exportWeeklyOrders() {
+            progressContainer.style.display = 'flex';
+            progressText.textContent = '正在收集周订单数据...';
+            progressFill.style.width = '20%';
+            
+            setTimeout(() => {
+                const { orders, dates } = getWeeklyOrders();
+                
+                if (orders.length === 0) {
+                    showNotification('最近7天无订单可导出');
+                    progressContainer.style.display = 'none';
+                    return;
+                }
+                
+                progressText.textContent = '正在生成Excel文件...';
+                progressFill.style.width = '60%';
+                
+                setTimeout(() => {
+                    // 创建工作簿
+                    const wb = XLSX.utils.book_new();
+                    
+                    // 创建汇总工作表
+                    const summaryData = [
+                        ['日期', '订单号', '桌号', '下单时间', '订单金额', '菜品数量']
+                    ];
+                    
+                    orders.forEach(order => {
+                        const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+                        summaryData.push([
+                            order.date || dates.find(d => dailyOrders[d]?.includes(order)),
+                            order.id,
+                            `${order.desk}号桌`,
+                            order.time,
+                            order.total,
+                            itemCount
+                        ]);
+                    });
+                    
+                    const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+                    XLSX.utils.book_append_sheet(wb, summaryWs, "周订单汇总");
+                    
+                    // 创建每日统计表
+                    const dailySummaryData = [
+                        ['日期', '订单数量', '总金额']
+                    ];
+                    
+                    dates.forEach(date => {
+                        if (dailyOrders[date]) {
+                            const orderCount = dailyOrders[date].length;
+                            const totalAmount = dailyOrders[date].reduce((sum, order) => sum + order.total, 0);
+                            dailySummaryData.push([date, orderCount, totalAmount]);
+                        }
+                    });
+                    
+                    const dailyWs = XLSX.utils.aoa_to_sheet(dailySummaryData);
+                    XLSX.utils.book_append_sheet(wb, dailyWs, "每日统计");
+                    
+                    // 导出文件
+                    const today = new Date().toISOString().split('T')[0];
+                    XLSX.writeFile(wb, `烧鸟店周订单_${today}.xlsx`);
+                    
+                    progressFill.style.width = '100%';
+                    progressText.textContent = '导出完成！';
+                    
+                    setTimeout(() => {
+                        progressContainer.style.display = 'none';
+                        showNotification('周订单已导出为Excel文件');
+                    }, 500);
+                }, 500);
+            }, 500);
+        }
+        
+        // 导出月订单
+        function exportMonthlyOrders() {
+            progressContainer.style.display = 'flex';
+            progressText.textContent = '正在收集月订单数据...';
+            progressFill.style.width = '20%';
+            
+            setTimeout(() => {
+                const { orders, dates } = getMonthlyOrders();
+                
+                if (orders.length === 0) {
+                    showNotification('最近30天无订单可导出');
+                    progressContainer.style.display = 'none';
+                    return;
+                }
+                
+                progressText.textContent = '正在生成Excel文件...';
+                progressFill.style.width = '60%';
+                
+                setTimeout(() => {
+                    // 创建工作簿
+                    const wb = XLSX.utils.book_new();
+                    
+                    // 创建汇总工作表
+                    const summaryData = [
+                        ['日期', '订单号', '桌号', '下单时间', '订单金额', '菜品数量']
+                    ];
+                    
+                    orders.forEach(order => {
+                        const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+                        summaryData.push([
+                            order.date || dates.find(d => dailyOrders[d]?.includes(order)),
+                            order.id,
+                            `${order.desk}号桌`,
+                            order.time,
+                            order.total,
+                            itemCount
+                        ]);
+                    });
+                    
+                    const summaryWs = XLSX.utils.aoa_to_sheet(summaryData);
+                    XLSX.utils.book_append_sheet(wb, summaryWs, "月订单汇总");
+                    
+                    // 创建每日统计表
+                    const dailySummaryData = [
+                        ['日期', '订单数量', '总金额']
+                    ];
+                    
+                    dates.forEach(date => {
+                        if (dailyOrders[date]) {
+                            const orderCount = dailyOrders[date].length;
+                            const totalAmount = dailyOrders[date].reduce((sum, order) => sum + order.total, 0);
+                            dailySummaryData.push([date, orderCount, totalAmount]);
+                        }
+                    });
+                    
+                    const dailyWs = XLSX.utils.aoa_to_sheet(dailySummaryData);
+                    XLSX.utils.book_append_sheet(wb, dailyWs, "每日统计");
+                    
+                    // 创建菜品销售统计
+                    progressText.textContent = '正在分析菜品销售数据...';
+                    progressFill.style.width = '80%';
+                    
+                    setTimeout(() => {
+                        const itemSales = {};
+                        orders.forEach(order => {
+                            order.items.forEach(item => {
+                                if (!itemSales[item.name]) {
+                                    itemSales[item.name] = {
+                                        name: item.name,
+                                        quantity: 0,
+                                        total: 0
+                                    };
+                                }
+                                itemSales[item.name].quantity += item.quantity;
+                                itemSales[item.name].total += item.price * item.quantity;
+                            });
+                        });
+                        
+                        const salesData = [
+                            ['菜品名称', '销售数量', '销售总额']
+                        ];
+                        
+                        Object.values(itemSales).forEach(item => {
+                            salesData.push([item.name, item.quantity, item.total]);
+                        });
+                        
+                        // 按销售额排序
+                        salesData.sort((a, b) => b[3] - a[3]);
+                        
+                        const salesWs = XLSX.utils.aoa_to_sheet(salesData);
+                        XLSX.utils.book_append_sheet(wb, salesWs, "菜品销售统计");
+                        
+                        // 导出文件
+                        const today = new Date().toISOString().split('T')[0];
+                        XLSX.writeFile(wb, `烧鸟店月订单_${today}.xlsx`);
+                        
+                        progressFill.style.width = '100%';
+                        progressText.textContent = '导出完成！';
+                        
+                        setTimeout(() => {
+                            progressContainer.style.display = 'none';
+                            showNotification('月订单已导出为Excel文件');
+                        }, 500);
+                    }, 500);
+                }, 500);
+            }, 500);
         }
         
         // 设置事件监听器
@@ -1911,8 +2157,8 @@
             });
             clearOrdersBtn.addEventListener('click', clearAllOrders);
             exportDailyBtn.addEventListener('click', exportDailyOrders);
-            exportWeeklyBtn.addEventListener('click', () => showNotification('周订单导出功能开发中'));
-            exportMonthlyBtn.addEventListener('click', () => showNotification('月订单导出功能开发中'));
+            exportWeeklyBtn.addEventListener('click', exportWeeklyOrders);
+            exportMonthlyBtn.addEventListener('click', exportMonthlyOrders);
             
             // 菜单管理按钮
             menuManagementBtn.addEventListener('click', () => {
