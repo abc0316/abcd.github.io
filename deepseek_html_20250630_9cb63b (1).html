@@ -1103,6 +1103,9 @@
         
         // 初始化页面
         function initPage() {
+            // 从本地存储加载历史订单
+            loadOrdersFromStorage();
+            
             renderCategories();
             renderMenu('all');
             renderDeskTabs();
@@ -1113,6 +1116,34 @@
             
             // 设置时间更新定时器
             setInterval(updateDateTime, 1000);
+        }
+        
+        // 从本地存储加载订单数据
+        function loadOrdersFromStorage() {
+            const savedOrders = localStorage.getItem('dailyOrders');
+            if (savedOrders) {
+                dailyOrders = JSON.parse(savedOrders);
+                
+                // 清理超过30天的旧订单
+                const today = new Date();
+                const thirtyDaysAgo = new Date(today);
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                
+                for (const date in dailyOrders) {
+                    const orderDate = new Date(date);
+                    if (orderDate < thirtyDaysAgo) {
+                        delete dailyOrders[date];
+                    }
+                }
+                
+                // 如果清理了数据，重新保存
+                saveOrdersToStorage();
+            }
+        }
+        
+        // 保存订单数据到本地存储
+        function saveOrdersToStorage() {
+            localStorage.setItem('dailyOrders', JSON.stringify(dailyOrders));
         }
         
         // 更新日期和时间
@@ -1442,6 +1473,9 @@
             // 添加订单到当天的订单列表
             dailyOrders[today].push(order);
             
+            // 保存订单到本地存储
+            saveOrdersToStorage();
+            
             // 清空当前桌号的订单
             deskOrders[currentDesk] = [];
             
@@ -1470,6 +1504,7 @@
             const today = new Date().toISOString().split('T')[0];
             if (dailyOrders[today]) {
                 dailyOrders[today] = [];
+                saveOrdersToStorage();
                 updateOrdersTable();
                 showNotification('所有订单记录已清除');
             } else {
